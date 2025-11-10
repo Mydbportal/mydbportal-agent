@@ -5,7 +5,7 @@
 # It is designed to reverse the actions of the accompanying install script.
 # WARNING: This will permanently delete all databases, users, and configurations!
 
-set -e  # Exit on any error
+set -e
 
 # Configuration
 CREDENTIALS_FILE="credentials"
@@ -18,7 +18,7 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 # Logging function
 log() {
@@ -51,82 +51,82 @@ confirm_cleanup() {
     echo "  - The database agent service"
     echo "  - All log files and credentials from the installation"
     echo ""
-    
+
     read -p "Are you sure you want to proceed? (type 'YES' to confirm): " -r
     if [[ ! $REPLY == "YES" ]]; then
         log_info "Cleanup cancelled by user."
         exit 0
     fi
-    
+
     log_warning "User confirmed cleanup - proceeding with removal."
 }
 
 # Function to stop services
 stop_services() {
     log "Stopping all relevant services..."
-    
+
     # Stop database agent
     if systemctl is-active --quiet database-agent; then
         systemctl stop database-agent >> "$CLEANUP_LOG" 2>&1 || true
         log "Database agent service stopped."
     fi
-    
+
     # Stop MySQL
     if systemctl is-active --quiet mysql; then
         systemctl stop mysql >> "$CLEANUP_LOG" 2>&1 || true
         log "MySQL service stopped."
     fi
-    
+
     # Stop PostgreSQL
     if systemctl is-active --quiet postgresql; then
         systemctl stop postgresql >> "$CLEANUP_LOG" 2>&1 || true
         log "PostgreSQL service stopped."
     fi
-    
+
     # Stop MongoDB
     if systemctl is-active --quiet mongod; then
         systemctl stop mongod >> "$CLEANUP_LOG" 2>&1 || true
         log "MongoDB service stopped."
     fi
-    
+
     log "All services stopped."
 }
 
 # Function to disable services
 disable_services() {
     log "Disabling all relevant services..."
-    
+
     # Disable database agent
     if systemctl is-enabled --quiet database-agent; then
         systemctl disable database-agent >> "$CLEANUP_LOG" 2>&1 || true
         log "Database agent service disabled."
     fi
-    
+
     # Disable MySQL
     if systemctl is-enabled --quiet mysql; then
         systemctl disable mysql >> "$CLEANUP_LOG" 2>&1 || true
         log "MySQL service disabled."
     fi
-    
+
     # Disable PostgreSQL
     if systemctl is-enabled --quiet postgresql; then
         systemctl disable postgresql >> "$CLEANUP_LOG" 2>&1 || true
         log "PostgreSQL service disabled."
     fi
-    
+
     # Disable MongoDB
     if systemctl is-enabled --quiet mongod; then
         systemctl disable mongod >> "$CLEANUP_LOG" 2>&1 || true
         log "MongoDB service disabled."
     fi
-    
+
     log "All services disabled."
 }
 
 # Function to remove MySQL
 remove_mysql() {
     log "Removing MySQL..."
-    
+
     if dpkg -l | grep -q "mysql-server"; then
         apt-get remove --purge -y mysql-server mysql-client mysql-common mysql-server-core-* mysql-client-core-* >> "$CLEANUP_LOG" 2>&1
         log "MySQL packages purged."
@@ -134,7 +134,7 @@ remove_mysql() {
         log "MySQL not found, skipping removal."
         return
     fi
-    
+
     rm -rf /etc/mysql /var/lib/mysql /var/log/mysql >> "$CLEANUP_LOG" 2>&1 || true
     log "MySQL directories removed."
     log "MySQL completely removed."
@@ -143,7 +143,7 @@ remove_mysql() {
 # Function to remove PostgreSQL
 remove_postgresql() {
     log "Removing PostgreSQL..."
-    
+
     if dpkg -l | grep -q "postgresql"; then
         apt-get remove --purge -y postgresql-* >> "$CLEANUP_LOG" 2>&1
         log "PostgreSQL packages purged."
@@ -151,7 +151,7 @@ remove_postgresql() {
         log "PostgreSQL not found, skipping removal."
         return
     fi
-    
+
     rm -rf /etc/postgresql /var/lib/postgresql /var/log/postgresql >> "$CLEANUP_LOG" 2>&1 || true
     log "PostgreSQL directories removed."
     log "PostgreSQL completely removed."
@@ -160,7 +160,7 @@ remove_postgresql() {
 # Function to remove MongoDB
 remove_mongodb() {
     log "Removing MongoDB..."
-    
+
     if dpkg -l | grep -q "mongodb-org"; then
         apt-get remove --purge -y mongodb-org* >> "$CLEANUP_LOG" 2>&1
         log "MongoDB packages purged."
@@ -168,7 +168,7 @@ remove_mongodb() {
         log "MongoDB not found, skipping removal."
         return
     fi
-    
+
     rm -rf /var/log/mongodb /var/lib/mongodb >> "$CLEANUP_LOG" 2>&1 || true
     rm -f /etc/apt/sources.list.d/mongodb-org-*.list >> "$CLEANUP_LOG" 2>&1 || true
     rm -f /usr/share/keyrings/mongodb-server-*.gpg >> "$CLEANUP_LOG" 2>&1 || true
@@ -179,13 +179,13 @@ remove_mongodb() {
 # Function to remove database agent
 remove_agent() {
     log "Removing database agent..."
-    
+
     if [ -f /etc/systemd/system/database-agent.service ]; then
         rm -f /etc/systemd/system/database-agent.service >> "$CLEANUP_LOG" 2>&1
         systemctl daemon-reload >> "$CLEANUP_LOG" 2>&1
         log "Database agent service file removed."
     fi
-    
+
     rm -rf /opt/database-agent >> "$CLEANUP_LOG" 2>&1 || true
     log "Database agent directory removed."
     log "Database agent completely removed."
@@ -194,57 +194,57 @@ remove_agent() {
 # Function to clean up files
 cleanup_files() {
     log "Cleaning up log and credential files..."
-    
+
     rm -f "$CREDENTIALS_FILE" "$INSTALL_LOG" temp_credentials.txt >> "$CLEANUP_LOG" 2>&1 || true
-    
+
     log "Local files cleaned up."
 }
 
 # Function to clean up package cache
 cleanup_packages() {
     log "Cleaning up package cache and orphaned packages..."
-    
+
     apt-get autoremove -y >> "$CLEANUP_LOG" 2>&1
     apt-get autoclean >> "$CLEANUP_LOG" 2>&1
     apt-get update -y >> "$CLEANUP_LOG" 2>&1
-    
+
     log "Package cache cleaned."
 }
 
 # Main execution
 main() {
     log "Starting database server cleanup..."
-    
+
     # Check if running as root
     if [ "$EUID" -ne 0 ]; then
         log_error "This script must be run as root."
         exit 1
     fi
-    
+
     # Confirm cleanup with user
     confirm_cleanup
-    
+
     # *** THIS IS THE FIX FOR THE HANGING ISSUE ***
     # Prevents apt-get from asking interactive questions
     export DEBIAN_FRONTEND=noninteractive
-    
+
     # Gracefully stop and disable services first
     stop_services
     disable_services
-    
+
     # Remove all installed components
     remove_agent
     remove_mysql
     remove_postgresql
     remove_mongodb
-    
+
     # Final system cleanup
     cleanup_files
     cleanup_packages
-    
+
     log "Database server cleanup completed successfully!"
     log "This cleanup log is located at: $CLEANUP_LOG"
-    
+
     echo ""
     echo -e "${GREEN}Cleanup Summary:${NC}"
     echo "================="
