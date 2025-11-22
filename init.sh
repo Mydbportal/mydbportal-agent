@@ -83,6 +83,7 @@ install_prerequisites() {
         jq \
         python3 >> "$INSTALL_LOG" 2>&1
 
+    sudo dpkg --configure -a
     log "Prerequisites installed successfully"
 }
 

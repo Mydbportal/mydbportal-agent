@@ -4,3 +4,4 @@ out/
 cleanup.log
 install.log
 temp_credentials.txt
+.env
