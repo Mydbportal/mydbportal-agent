@@ -66,10 +66,10 @@ get_server_ip() {
 # Function to install prerequisites
 install_prerequisites() {
     log "Installing prerequisites..."
-    
+
     # Update system
     apt-get update -y >> "$INSTALL_LOG" 2>&1
-    
+
     # Install required packages (Nginx and Certbot removed)
     apt-get install -y \
         curl \
@@ -82,29 +82,29 @@ install_prerequisites() {
         openssl \
         jq \
         python3 >> "$INSTALL_LOG" 2>&1
-    
+
     log "Prerequisites installed successfully"
 }
 
 # Function to install MySQL
 install_mysql() {
     log "Installing MySQL..."
-    
+
     # Generate MySQL root password
     MYSQL_ROOT_PASSWORD=$(generate_password)
-    
+
     # Set non-interactive installation
     export DEBIAN_FRONTEND=noninteractive
     echo "mysql-server mysql-server/root_password password $MYSQL_ROOT_PASSWORD" | debconf-set-selections
     echo "mysql-server mysql-server/root_password_again password $MYSQL_ROOT_PASSWORD" | debconf-set-selections
-    
+
     # Install MySQL
     apt-get install -y mysql-server >> "$INSTALL_LOG" 2>&1
-    
+
     # Start and enable MySQL
     systemctl start mysql >> "$INSTALL_LOG" 2>&1
     systemctl enable mysql >> "$INSTALL_LOG" 2>&1
-    
+
     # Secure MySQL installation
     mysql -u root -p"$MYSQL_ROOT_PASSWORD" <<EOF >> "$INSTALL_LOG" 2>&1
 DELETE FROM mysql.user WHERE User='';
@@ -115,89 +115,97 @@ CREATE USER 'admin'@'%' IDENTIFIED BY '$MYSQL_ROOT_PASSWORD';
 GRANT ALL PRIVILEGES ON *.* TO 'admin'@'%' WITH GRANT OPTION;
 FLUSH PRIVILEGES;
 EOF
-    
+
     # Configure MySQL for remote access
     sed -i 's/bind-address\s*=\s*127.0.0.1/bind-address = 0.0.0.0/' /etc/mysql/mysql.conf.d/mysqld.cnf
-    
+
     # Restart MySQL
     systemctl restart mysql >> "$INSTALL_LOG" 2>&1
-    
+
     # Store credentials
     echo "MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD" >> temp_credentials.txt
     echo "MYSQL_ADMIN_USER=admin" >> temp_credentials.txt
     echo "MYSQL_ADMIN_PASSWORD=$MYSQL_ROOT_PASSWORD" >> temp_credentials.txt
     echo "MYSQL_PORT=3306" >> temp_credentials.txt
-    
+
     log "MySQL installed and configured successfully"
 }
 
 # Function to install PostgreSQL
 install_postgresql() {
     log "Installing PostgreSQL..."
-    
+
     # Generate PostgreSQL password
     POSTGRES_PASSWORD=$(generate_password)
-    
+
     # Install PostgreSQL
-    apt-get install -y postgresql postgresql-contrib >> "$INSTALL_LOG" 2>&1
-    
+    # Add PGDG repository
+    apt-get install -y postgresql-client-common >> "$INSTALL_LOG" 2>&1
+    echo | /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh >> "$INSTALL_LOG" 2>&1
+    apt-get update -y >> "$INSTALL_LOG" 2>&1
+
+    # Install PostgreSQL 18
+    apt-get install -y postgresql-18 postgresql-client-18 postgresql-contrib-18 >> "$INSTALL_LOG" 2>&1
+
+
     # Start and enable PostgreSQL
     systemctl start postgresql >> "$INSTALL_LOG" 2>&1
     systemctl enable postgresql >> "$INSTALL_LOG" 2>&1
-    
+
     # Configure PostgreSQL
     sudo -u postgres psql <<EOF >> "$INSTALL_LOG" 2>&1
 ALTER USER postgres PASSWORD '$POSTGRES_PASSWORD';
 CREATE USER admin WITH SUPERUSER PASSWORD '$POSTGRES_PASSWORD';
 EOF
-    
+
     # Configure PostgreSQL for remote access
     POSTGRES_VERSION=$(pg_config --version | awk '{print $2}' | sed 's/\..*//')
     POSTGRES_CONFIG_DIR="/etc/postgresql/$POSTGRES_VERSION/main"
-    
+
     # Update postgresql.conf
     sed -i "s/#listen_addresses = 'localhost'/listen_addresses = '*'/" "$POSTGRES_CONFIG_DIR/postgresql.conf"
-    
+
     # Update pg_hba.conf
     echo "host all all 0.0.0.0/0 md5" >> "$POSTGRES_CONFIG_DIR/pg_hba.conf"
-    
+
     # Restart PostgreSQL
     systemctl restart postgresql >> "$INSTALL_LOG" 2>&1
-    
+
     # Store credentials
     echo "POSTGRES_SUPERUSER=postgres" >> temp_credentials.txt
     echo "POSTGRES_PASSWORD=$POSTGRES_PASSWORD" >> temp_credentials.txt
     echo "POSTGRES_ADMIN_USER=admin" >> temp_credentials.txt
     echo "POSTGRES_ADMIN_PASSWORD=$POSTGRES_PASSWORD" >> temp_credentials.txt
     echo "POSTGRES_PORT=5432" >> temp_credentials.txt
-    
+
     log "PostgreSQL installed and configured successfully"
 }
 
 # Function to install MongoDB
 install_mongodb() {
     log "Installing MongoDB..."
-    
+
     # Generate MongoDB password
     MONGO_PASSWORD=$(generate_password)
-    
-    # Import MongoDB GPG key
-    curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | gpg -o /usr/share/keyrings/mongodb-server-7.0.gpg --dearmor >> "$INSTALL_LOG" 2>&1
-    
-    # Add MongoDB repository
-    echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" | tee /etc/apt/sources.list.d/mongodb-org-7.0.list >> "$INSTALL_LOG" 2>&1
-    
+
+     # Import MongoDB GPG key for version 8.0
+    curl -fsSL https://www.mongodb.org/static/pgp/server-8.0.asc \
+      | gpg -o /usr/share/keyrings/mongodb-server-8.0.gpg --dearmor >> "$INSTALL_LOG" 2>&1
+
+        # Add MongoDB 8.0 repo (for Ubuntu 22.04 jammy)
+    echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/8.0 multiverse" \
+      | tee /etc/apt/sources.list.d/mongodb-org-8.0.list >> "$INSTALL_LOG" 2>&1
     # Update package list
     apt-get update -y >> "$INSTALL_LOG" 2>&1
-    
+
     # Install MongoDB
     apt-get install -y mongodb-org >> "$INSTALL_LOG" 2>&1
-    
+
     # Start and enable MongoDB
     log "Starting MongoDB service..."
     systemctl start mongod >> "$INSTALL_LOG" 2>&1
     systemctl enable mongod >> "$INSTALL_LOG" 2>&1
-    
+
     # Wait for MongoDB service to be ready before proceeding
     log "Waiting for MongoDB to initialize..."
     for i in {1..30}; do
@@ -216,7 +224,7 @@ install_mongodb() {
         journalctl -u mongod -n 50 --no-pager >> "$INSTALL_LOG"
         exit 1
     fi
-    
+
     # Configure MongoDB authentication now that the service is confirmed running
     log "Configuring MongoDB admin user..."
     mongosh --eval "
@@ -227,21 +235,21 @@ install_mongodb() {
         roles: [ { role: 'root', db: 'admin' } ]
     })
     " >> "$INSTALL_LOG" 2>&1
-    
+
     # Enable authentication and configure for remote access
     # This sed command finds the commented #security line and replaces it with an enabled block
     sed -i '/#security:/a\security:\n  authorization: enabled' /etc/mongod.conf
     sed -i 's/bindIp: 127.0.0.1/bindIp: 0.0.0.0/' /etc/mongod.conf
-    
+
     # Restart MongoDB to apply security and network changes
     log "Restarting MongoDB to apply new configuration..."
     systemctl restart mongod >> "$INSTALL_LOG" 2>&1
-    
+
     # Store credentials
     echo "MONGO_ADMIN_USER=admin" >> temp_credentials.txt
     echo "MONGO_ADMIN_PASSWORD=$MONGO_PASSWORD" >> temp_credentials.txt
     echo "MONGO_PORT=27017" >> temp_credentials.txt
-    
+
     log "MongoDB installed and configured successfully"
 }
 
@@ -281,7 +289,7 @@ EOF
     RESPONSE=$(curl -s -X POST "$API_ENDPOINT" \
         -H "Content-Type: application/json" \
         -d "$JSON_PAYLOAD")
-    
+
     log "API Response: $RESPONSE"
 
     # Check if the response contains an error field and log it.
@@ -359,27 +367,27 @@ EOF
 # Function to encrypt and store credentials
 store_credentials() {
     log "Storing encrypted credentials..."
-    
+
     # Add server information
     echo "SERVER_IP=$(get_server_ip)" >> temp_credentials.txt
     echo "SETUP_DATE=$(date)" >> temp_credentials.txt
-    
+
     # Encrypt credentials
     ENCRYPTED_CREDENTIALS=$(encrypt_credentials "$(cat temp_credentials.txt)")
-    
+
     # Store encrypted credentials
     echo "$ENCRYPTED_CREDENTIALS" > "$CREDENTIALS_FILE"
-    
+
     # Clean up temporary file
     rm temp_credentials.txt
-    
+
     log "Credentials encrypted and stored in $CREDENTIALS_FILE"
 }
 
 # Function to test decryption
 test_decryption() {
     log "Testing credential decryption..."
-    
+
     if [ -f "$CREDENTIALS_FILE" ]; then
         DECRYPTED=$(decrypt_credentials "$(cat $CREDENTIALS_FILE)")
         echo "Decrypted credentials:"
@@ -393,41 +401,41 @@ test_decryption() {
 # Main execution
 main() {
     log "Starting database server setup..."
-    
+
     # Check if running as root
     if [ "$EUID" -ne 0 ]; then
         log_error "This script must be run as root"
         exit 1
     fi
-    
+
     # Install prerequisites
     install_prerequisites
-    
+
     # Install databases
     install_mysql
     install_postgresql
     install_mongodb
     log "Databases installed successfully"
-    
+
     # Call API to notify completion and send credentials
     call_setup_api
-    
+
     # Setup agent
     setup_agent
-    
+
     # Store credentials
     store_credentials
-    
+
     # Test decryption
     test_decryption
-    
+
     log "Database server setup completed successfully!"
     log "Credentials stored in: $CREDENTIALS_FILE"
     log "Install log: $INSTALL_LOG"
     log "Agent running on port: $AGENT_PORT"
-    
+
     SERVER_IP=$(get_server_ip)
-    
+
     echo ""
     echo "Setup Summary:"
     echo "=============="
