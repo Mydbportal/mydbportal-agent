@@ -142,29 +142,32 @@ install_postgresql() {
     # Install postgresql-client-common first
     apt-get install -y postgresql-client-common >> "$INSTALL_LOG" 2>&1
 
-    # ---- ADD PGDG REPO (CROSS DISTRO) ----
+    # ---- ADD PGDG REPOSITORY (DEBIAN & UBUNTU COMPATIBLE) ----
     if [ -f /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh ]; then
-        # Debian-based where script exists
+        # Debian-based - installer script exists
         echo | /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh >> "$INSTALL_LOG" 2>&1
     else
-        # Ubuntu or other systems without installer script
-        log "PGDG installer script missing - adding repository manually..."
+        # Ubuntu (or Debian variants without the script)
+        log "PGDG installer script missing - adding PostgreSQL repo manually..."
 
         install -d /usr/share/postgresql-common/pgdg
 
+        # Import official PG public key
         wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc \
             | tee /usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg \
             >> "$INSTALL_LOG" 2>&1
 
-        # Detect distro codename (jammy, bookworm, etc.)
+        # Detect distro codename (e.g. jammy, bookworm)
         DISTRO_CODENAME=$(lsb_release -cs)
 
+        # Create repo file
         tee /etc/apt/sources.list.d/pgdg.list <<EOF >> "$INSTALL_LOG" 2>&1
 deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg] \
 https://apt.postgresql.org/pub/repos/apt $DISTRO_CODENAME-pgdg main
 EOF
     fi
 
+    # Update package index
     apt-get update -y >> "$INSTALL_LOG" 2>&1
 
     # ---- INSTALL POSTGRESQL 18 ----
@@ -175,27 +178,27 @@ EOF
     systemctl start postgresql >> "$INSTALL_LOG" 2>&1
     systemctl enable postgresql >> "$INSTALL_LOG" 2>&1
 
-    # Configure PostgreSQL
+    # Configure PostgreSQL users
     sudo -u postgres psql <<EOF >> "$INSTALL_LOG" 2>&1
 ALTER USER postgres PASSWORD '$POSTGRES_PASSWORD';
 CREATE USER admin WITH SUPERUSER PASSWORD '$POSTGRES_PASSWORD';
 EOF
 
-    # --- CONFIG FILE PATH RESOLUTION ---
+    # Detect version major number (e.g. 18)
     POSTGRES_VERSION=$(pg_config --version | awk '{print $2}' | sed 's/\..*//')
     POSTGRES_CONFIG_DIR="/etc/postgresql/$POSTGRES_VERSION/main"
 
-    # Update postgresql.conf
+    # Enable remote access in postgresql.conf
     sed -i "s/#listen_addresses = 'localhost'/listen_addresses = '*'/" \
         "$POSTGRES_CONFIG_DIR/postgresql.conf"
 
-    # Update pg_hba.conf
+    # Allow remote connections in pg_hba.conf
     echo "host all all 0.0.0.0/0 md5" >> "$POSTGRES_CONFIG_DIR/pg_hba.conf"
 
-    # Restart PostgreSQL
+    # Restart PostgreSQL to apply config changes
     systemctl restart postgresql >> "$INSTALL_LOG" 2>&1
 
-    # Store credentials
+    # Save credentials
     {
         echo "POSTGRES_SUPERUSER=postgres"
         echo "POSTGRES_PASSWORD=$POSTGRES_PASSWORD"
@@ -206,6 +209,7 @@ EOF
 
     log "PostgreSQL installed and configured successfully"
 }
+
 
 
 # Function to install MongoDB
