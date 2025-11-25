@@ -133,6 +133,7 @@ EOF
 }
 
 # Function to install PostgreSQL
+# Function to install PostgreSQL
 install_postgresql() {
     log "Installing PostgreSQL..."
 
@@ -142,30 +143,26 @@ install_postgresql() {
     # Install postgresql-client-common first
     apt-get install -y postgresql-client-common >> "$INSTALL_LOG" 2>&1
 
-    # ---- ADD PGDG REPOSITORY (DEBIAN & UBUNTU COMPATIBLE) ----
-    if [ -f /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh ]; then
-        # Debian-based - installer script exists
-        echo | /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh >> "$INSTALL_LOG" 2>&1
-    else
-        # Ubuntu (or Debian variants without the script)
-        log "PGDG installer script missing - adding PostgreSQL repo manually..."
+    # ---- PATCHED PGDG REPO INSTALLATION ----
+    log "Adding PostgreSQL PGDG repository (patched method - Ubuntu compatible)..."
 
-        install -d /usr/share/postgresql-common/pgdg
+    # Create keyring directory
+    install -d /usr/share/keyrings
 
-        # Import official PG public key
-        wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc \
-            | tee /usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg \
-            >> "$INSTALL_LOG" 2>&1
+    # Download and convert GPG key properly
+    curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+        | gpg --dearmor \
+        | tee /usr/share/keyrings/pgdg.gpg > /dev/null
 
-        # Detect distro codename (e.g. jammy, bookworm)
-        DISTRO_CODENAME=$(lsb_release -cs)
+    # Detect distro codename (jammy, focal, bookworm, etc.)
+    DISTRO_CODENAME=$(lsb_release -cs)
 
-        # Create repo file
-        tee /etc/apt/sources.list.d/pgdg.list <<EOF >> "$INSTALL_LOG" 2>&1
-deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg] \
-https://apt.postgresql.org/pub/repos/apt $DISTRO_CODENAME-pgdg main
+    # Create source list referencing proper signed-by keyring
+    tee /etc/apt/sources.list.d/pgdg.list > /dev/null <<EOF
+deb [signed-by=/usr/share/keyrings/pgdg.gpg] https://apt.postgresql.org/pub/repos/apt $DISTRO_CODENAME-pgdg main
 EOF
-    fi
+
+    log "PGDG repository added successfully"
 
     # Update package index
     apt-get update -y >> "$INSTALL_LOG" 2>&1
@@ -209,6 +206,7 @@ EOF
 
     log "PostgreSQL installed and configured successfully"
 }
+
 
 
 
