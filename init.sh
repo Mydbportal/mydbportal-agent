@@ -256,14 +256,14 @@ install_mongodb() {
 
     # Configure MongoDB authentication now that the service is confirmed running
     log "Configuring MongoDB admin user..."
-    mongosh --eval "
-    use admin
-    db.createUser({
-        user: 'admin',
-        pwd: '$MONGO_PASSWORD',
-        roles: [ { role: 'root', db: 'admin' } ]
-    })
-    " >> "$INSTALL_LOG" 2>&1
+    mongosh --quiet >> "$INSTALL_LOG" 2>&1 <<EOF
+use admin
+db.createUser({
+  user: "admin",
+  pwd: "$MONGO_PASSWORD",
+  roles: [ { role: "root", db: "admin" } ]
+})
+EOF
 
     # Enable authentication and configure for remote access
     # This sed command finds the commented #security line and replaces it with an enabled block
